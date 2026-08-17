@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Вход — Кто хочет стать миллионером</title>
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<div class="logo">КТО ХОЧЕТ СТАТЬ МИЛЛИОНЕРОМ</div>
+<div class="tagline">онлайн-викторина · реальные игроки · одна комната</div>
+
+<div class="card" id="loginCard">
+  <h2>Вход</h2>
+  <label>Имя пользователя</label>
+  <input type="text" id="loginUsername" autocomplete="username" placeholder="Ваш логин">
+  <label>Пароль</label>
+  <input type="password" id="loginPassword" autocomplete="current-password" placeholder="Ваш пароль">
+  <button class="btn" id="loginBtn">Войти</button>
+  <div class="error-box" id="loginError"></div>
+  <div class="switch-link">Нет аккаунта? <a id="toRegister">Зарегистрироваться</a></div>
+</div>
+
+<div class="card hidden" id="registerCard">
+  <h2>Регистрация</h2>
+  <label>Имя пользователя</label>
+  <input type="text" id="regUsername" placeholder="3–20 символов">
+  <label>Пароль</label>
+  <input type="password" id="regPassword" placeholder="Минимум 4 символа">
+  <button class="btn" id="registerBtn">Создать аккаунт</button>
+  <div class="error-box" id="registerError"></div>
+  <div class="switch-link">Уже есть аккаунт? <a id="toLogin">Войти</a></div>
+</div>
+
+<div class="footnote">Регистрация нужна, чтобы в одной комнате играли реальные, узнаваемые игроки — до 5 человек одновременно с разных устройств.</div>
+
+<script>
+if (localStorage.getItem('mq_token')) {
+  window.location.href = '/lobby.html';
+}
+
+const loginCard = document.getElementById('loginCard');
+const registerCard = document.getElementById('registerCard');
+document.getElementById('toRegister').onclick = () => { loginCard.classList.add('hidden'); registerCard.classList.remove('hidden'); };
+document.getElementById('toLogin').onclick = () => { registerCard.classList.add('hidden'); loginCard.classList.remove('hidden'); };
+
+function showError(el, msg){ el.textContent = msg; el.classList.add('show'); }
+function hideError(el){ el.classList.remove('show'); }
+
+async function submitAuth(url, username, password, errorEl){
+  hideError(errorEl);
+  try{
+    const res = await fetch(url, {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ username, password })
+    });
+    const data = await res.json();
+    if(!res.ok){ showError(errorEl, data.error || 'Ошибка'); return; }
+    localStorage.setItem('mq_token', data.token);
+    localStorage.setItem('mq_username', data.username);
+    window.location.href = '/lobby.html';
+  }catch(e){
+    showError(errorEl, 'Не удалось связаться с сервером');
+  }
+}
+
+document.getElementById('loginBtn').onclick = () => {
+  submitAuth('/api/login', document.getElementById('loginUsername').value.trim(), document.getElementById('loginPassword').value, document.getElementById('loginError'));
+};
+document.getElementById('registerBtn').onclick = () => {
+  submitAuth('/api/register', document.getElementById('regUsername').value.trim(), document.getElementById('regPassword').value, document.getElementById('registerError'));
+};
+[...document.querySelectorAll('input')].forEach(inp=>{
+  inp.addEventListener('keydown', e => { if(e.key==='Enter'){ e.preventDefault(); e.target.closest('.card').querySelector('.btn').click(); } });
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Лобби — Кто хочет стать миллионером</title>
+<link rel="stylesheet" href="/css/style.css">
+<style>
+  .topic-grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:10px; margin-top:10px;}
+  .topic-card{border:1px solid var(--line); background:rgba(255,255,255,0.03); border-radius:12px; padding:12px; cursor:pointer; transition:.15s; text-align:center;}
+  .topic-card:hover{border-color:var(--gold);}
+  .topic-card.active{background:linear-gradient(160deg, rgba(232,184,75,0.18), rgba(232,184,75,0.04)); border-color:var(--gold);}
+  .topic-card .em{font-size:20px;}
+  .topic-card .nm{font-weight:700; font-size:13px; margin-top:4px;}
+  .room-code{font-family:'Space Mono',monospace; font-size:34px; font-weight:700; letter-spacing:8px; text-align:center; color:var(--gold-bright); margin:16px 0; text-shadow:0 0 30px rgba(232,184,75,.35);}
+  .player-list{display:flex; flex-direction:column; gap:8px; margin:16px 0;}
+  .player-row{display:flex; align-items:center; gap:10px; padding:10px 14px; border:1px solid var(--line); border-radius:10px; background:rgba(255,255,255,0.02);}
+  .dot{width:9px;height:9px;border-radius:50%; background:var(--good); flex-shrink:0;}
+  .dot.off{background:#555;}
+  .player-row .nm{flex:1; font-weight:700;}
+  .badge{font-size:11px; padding:2px 8px; border-radius:999px; border:1px solid var(--gold); color:var(--gold-bright);}
+  .userbar{width:100%; max-width:1080px; display:flex; justify-content:space-between; align-items:center; margin-bottom:14px; font-size:13px; color:var(--ink-dim);}
+  .userbar b{color:var(--gold-bright);}
+  .userbar a{color:var(--ink-dim); cursor:pointer; text-decoration:underline;}
+  .join-row{display:flex; gap:10px; margin-top:10px;}
+  .join-row input{flex:1; text-transform:uppercase; letter-spacing:4px; text-align:center;}
+  .join-row button{width:auto; padding:0 20px; margin-top:0;}
+  .two-col{display:grid; grid-template-columns:1fr 1fr; gap:18px;}
+  @media(max-width:640px){.two-col{grid-template-columns:1fr;}}
+</style>
+</head>
+<body>
+
+<div class="userbar">
+  <div>Вы вошли как <b id="whoAmI">…</b></div>
+  <a id="logoutLink">Выйти</a>
+</div>
+
+<div class="logo">КТО ХОЧЕТ СТАТЬ МИЛЛИОНЕРОМ</div>
+<div class="tagline">лобби · создайте комнату или подключитесь по коду</div>
+
+<div id="setupArea" class="card wide">
+  <div class="two-col">
+    <div>
+      <h2>Создать комнату</h2>
+      <label>Тема вопросов</label>
+      <div class="topic-grid" id="topicGrid"></div>
+      <button class="btn" id="createBtn">Создать комнату</button>
+    </div>
+    <div>
+      <h2>Подключиться по коду</h2>
+      <label>Код комнаты от хоста</label>
+      <div class="join-row">
+        <input type="text" id="joinCode" maxlength="5" placeholder="XXXXX">
+        <button class="btn" id="joinBtn">Войти</button>
+      </div>
+      <div class="footnote" style="margin-top:20px; text-align:left;">Игроки заходят в одну комнату каждый со своего телефона или компьютера — вопросы приходят всем одновременно, побеждает тот, кто дальше пройдёт по денежной лестнице.</div>
+    </div>
+  </div>
+  <div class="error-box" id="setupError"></div>
+</div>
+
+<div id="roomArea" class="card wide hidden">
+  <h2 style="text-align:center;">Комната</h2>
+  <div class="room-code" id="roomCode">-----</div>
+  <div class="footnote" style="margin:-6px 0 10px;">Скажите этот код остальным игрокам, чтобы они ввели его на экране «Подключиться по коду»</div>
+  <div class="player-list" id="playerList"></div>
+  <button class="btn" id="startBtn">Начать игру (только хост)</button>
+  <button class="btn secondary small" id="leaveBtn">Покинуть комнату</button>
+  <div class="error-box" id="roomError"></div>
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script>
+const token = localStorage.getItem('mq_token');
+const username = localStorage.getItem('mq_username');
+if(!token){ window.location.href = '/index.html'; }
+document.getElementById('whoAmI').textContent = username;
+document.getElementById('logoutLink').onclick = () => { localStorage.removeItem('mq_token'); localStorage.removeItem('mq_username'); localStorage.removeItem('mq_room'); window.location.href='/index.html'; };
+
+const TOPICS = [
+  {key:'general', name:'Общие знания', emoji:'🧠'},
+  {key:'science', name:'Наука', emoji:'🔬'},
+  {key:'history', name:'История', emoji:'🏛'},
+  {key:'geography', name:'География', emoji:'🌍'},
+  {key:'movies', name:'Кино и культура', emoji:'🎬'},
+  {key:'sport', name:'Спорт', emoji:'🏆'},
+  {key:'mix', name:'Микс (все темы)', emoji:'🎲'},
+];
+let selectedTopic = 'general';
+const topicGrid = document.getElementById('topicGrid');
+function renderTopics(){
+  topicGrid.innerHTML = '';
+  TOPICS.forEach(t=>{
+    const d = document.createElement('div');
+    d.className = 'topic-card' + (selectedTopic===t.key?' active':'');
+    d.innerHTML = `<div class="em">${t.emoji}</div><div class="nm">${t.name}</div>`;
+    d.onclick = () => { selectedTopic = t.key; renderTopics(); };
+    topicGrid.appendChild(d);
+  });
+}
+renderTopics();
+
+const socket = io({ auth: { token } });
+let isHost = false;
+let currentRoomCode = null;
+
+socket.on('connect_error', (err) => {
+  if(err.message === 'unauthorized'){
+    localStorage.removeItem('mq_token');
+    window.location.href = '/index.html';
+  }
+});
+
+const setupArea = document.getElementById('setupArea');
+const roomArea = document.getElementById('roomArea');
+const setupError = document.getElementById('setupError');
+const roomError = document.getElementById('roomError');
+
+function showSetupError(msg){ setupError.textContent = msg; setupError.classList.add('show'); }
+function showRoomError(msg){ roomError.textContent = msg; roomError.classList.add('show'); }
+
+document.getElementById('createBtn').onclick = () => {
+  setupError.classList.remove('show');
+  socket.emit('room:create', { topic: selectedTopic });
+};
+
+document.getElementById('joinBtn').onclick = () => {
+  setupError.classList.remove('show');
+  const code = document.getElementById('joinCode').value.trim().toUpperCase();
+  if(code.length !== 5) return showSetupError('Код состоит из 5 символов');
+  socket.emit('room:join', { code });
+};
+
+document.getElementById('leaveBtn').onclick = () => {
+  socket.emit('room:leave');
+  localStorage.removeItem('mq_room');
+  roomArea.classList.add('hidden');
+  setupArea.classList.remove('hidden');
+};
+
+document.getElementById('startBtn').onclick = () => {
+  roomError.classList.remove('show');
+  socket.emit('room:start');
+};
+
+socket.on('room:created', ({ code }) => enterRoom(code));
+socket.on('room:joined', ({ code }) => enterRoom(code));
+socket.on('room:rejoined', ({ code }) => enterRoom(code));
+socket.on('room:error', ({ message }) => { showSetupError(message); showRoomError(message); });
+
+function enterRoom(code){
+  currentRoomCode = code;
+  localStorage.setItem('mq_room', code);
+  setupArea.classList.add('hidden');
+  roomArea.classList.remove('hidden');
+  document.getElementById('roomCode').textContent = code;
+}
+
+socket.on('room:players', (data) => {
+  if(!currentRoomCode) enterRoom(data.code);
+  isHost = data.hostUsername === username;
+  document.getElementById('startBtn').style.display = isHost ? 'block' : 'none';
+  const list = document.getElementById('playerList');
+  list.innerHTML = '';
+  data.players.forEach(p=>{
+    const row = document.createElement('div');
+    row.className = 'player-row';
+    row.innerHTML = `<div class="dot ${p.connected?'':'off'}"></div><div class="nm">${p.username}</div>${p.isHost?'<span class="badge">хост</span>':''}`;
+    list.appendChild(row);
+  });
+});
+
+socket.on('game:started', () => {
+  window.location.href = '/game.html';
+});
+
+// если пользователь уже был в комнате (обновил страницу) — сокет сам восстановит сессию через room:rejoined
+</script>
+</body>
+</html>
