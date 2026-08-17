@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Игра — Кто хочет стать ВОБЛОЙ</title>
+<title>Игра — Кто хочет стать воблой</title>
 <link rel="stylesheet" href="/css/style.css">
 <style>
   body{padding-top:16px;}
@@ -260,6 +260,23 @@ function selectAnswer(i){
 socket.on('game:answerReceived', () => {
   statusMsg.classList.remove('hidden');
   statusMsg.textContent = 'Ответ отправлен — ждём остальных игроков…';
+});
+
+socket.on('game:locked', ({ delayMs }) => {
+  clearInterval(timerInterval);
+  [...optionsBox.children].forEach(b => { b.disabled = true; });
+  statusMsg.classList.remove('hidden');
+  let secondsLeft = Math.round((delayMs || 5000) / 1000);
+  statusMsg.textContent = `Все ответили! Правильный ответ через ${secondsLeft}…`;
+  clearInterval(timerInterval);
+  timerInterval = setInterval(() => {
+    secondsLeft -= 1;
+    if(secondsLeft > 0){
+      statusMsg.textContent = `Все ответили! Правильный ответ через ${secondsLeft}…`;
+    } else {
+      clearInterval(timerInterval);
+    }
+  }, 1000);
 });
 
 socket.on('game:reveal', ({ correctIndex, results }) => {
