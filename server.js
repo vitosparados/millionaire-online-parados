@@ -15,7 +15,8 @@ const {
 
 const PORT = process.env.PORT || 3000;
 const QUESTION_SECONDS = 25;
-const REVEAL_DELAY_MS = 3500;
+const LOCK_DELAY_MS = 5000; // пауза после ответа/окончания времени, прежде чем показать правильный ответ
+const REVEAL_DELAY_MS = 3500; // пауза после показа правильного ответа, прежде чем перейти к следующему вопросу
 const MAX_PLAYERS = 5;
 const ROOM_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // без похожих символов (0/O, 1/I)
 
@@ -124,6 +125,7 @@ function sendQuestionToRoom(room) {
   const q = room.questions[room.currentIndex];
   room.answers = new Map();
   room.questionStartedAt = Date.now();
+  room.locking = false;
 
   const payload = {
     index: room.currentIndex,
@@ -145,12 +147,23 @@ function sendQuestionToRoom(room) {
   });
 
   clearTimeout(room.timer);
-  room.timer = setTimeout(() => revealRound(room), QUESTION_SECONDS * 1000 + 300);
+  room.timer = setTimeout(() => lockAndReveal(room), QUESTION_SECONDS * 1000);
+}
+
+// Вызывается, когда все живые игроки ответили ИЛИ вышло время.
+// Даёт короткую драматическую паузу (5 секунд) перед тем, как показать правильный ответ.
+function lockAndReveal(room) {
+  if (room.status !== 'playing' || room.locking) return;
+  room.locking = true;
+  clearTimeout(room.timer);
+  io.to(room.code).emit('game:locked', { delayMs: LOCK_DELAY_MS });
+  room.timer = setTimeout(() => revealRound(room), LOCK_DELAY_MS);
 }
 
 function revealRound(room) {
   if (room.status !== 'playing') return;
   clearTimeout(room.timer);
+  room.locking = false;
   const q = room.questions[room.currentIndex];
 
   const results = [];
@@ -353,8 +366,8 @@ io.on('connection', (socket) => {
     socket.emit('game:answerReceived', { choiceIndex });
 
     const alive = alivePlayers(room);
-    const allAnswered = alive.every(p => room.answers.has(p.username));
-    if (allAnswered) revealRound(room);
+    const allAnswered = alive.length > 0 && alive.every(p => room.answers.has(p.username));
+    if (allAnswered) lockAndReveal(room);
   });
 
   socket.on('lifeline:fifty', () => {
@@ -402,9 +415,15 @@ io.on('connection', (socket) => {
     if (!code || !rooms.has(code)) return;
     const room = rooms.get(code);
     const player = room.players.get(username);
-    if (player) player.connected = false;
-    broadcastPlayers(room);
-    destroyRoomIfEmpty(room);
+    // Важно: помечаем игрока офлайн ТОЛЬКО если это всё ещё его текущее соединение.
+    // При переходе между страницами (лобби → игра) браузер открывает новый сокет
+    // раньше, чем закрывается старый — без этой проверки событие от старого,
+    // уже неактуального сокета могло ошибочно "отключить" только что вернувшегося игрока.
+    if (player && player.socketId === socket.id) {
+      player.connected = false;
+      broadcastPlayers(room);
+      destroyRoomIfEmpty(room);
+    }
   });
 
   function getPlayingRoom(uname) {
