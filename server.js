@@ -14,7 +14,7 @@ const {
 } = require('./lib/questions');
 
 const PORT = process.env.PORT || 3000;
-const QUESTION_SECONDS = 25;
+const QUESTION_SECONDS = 30;
 const LOCK_DELAY_MS = 5000; // пауза после ответа/окончания времени, прежде чем показать правильный ответ
 const REVEAL_DELAY_MS = 3500; // пауза после показа правильного ответа, прежде чем перейти к следующему вопросу
 const MAX_PLAYERS = 5;
@@ -212,7 +212,6 @@ function revealRound(room) {
 }
 
 function finishGame(room) {
-  room.status = 'finished';
   const standings = Array.from(room.players.values())
     .map(p => ({ username: p.username, bankedMoney: p.bankedMoney, finishedReason: p.finishedReason }))
     .sort((a, b) => b.bankedMoney - a.bankedMoney);
@@ -220,6 +219,18 @@ function finishGame(room) {
   standings.forEach(s => userStore.recordResult(s.username, s.bankedMoney));
 
   io.to(room.code).emit('game:over', { standings });
+
+  // Возвращаем комнату в состояние лобби: тот же код, те же игроки —
+  // хост может сразу выбрать тему и начать новую игру, а другие игроки
+  // могут по-прежнему заходить по этому коду вместо ошибки "игра уже началась".
+  room.status = 'lobby';
+  room.currentIndex = 0;
+  room.answers = new Map();
+  room.players.forEach(p => {
+    p.level = 0; p.alive = true; p.bankedMoney = 0; p.finishedReason = null;
+    p.lifelines = { fifty: true, audience: true, expert: true };
+  });
+
   broadcastPlayers(room);
 }
 
@@ -329,6 +340,17 @@ io.on('connection', (socket) => {
       }
       broadcastPlayers(room);
     }
+  });
+
+  socket.on('room:setTopic', ({ topic }) => {
+    const code = userRoom.get(username);
+    const room = code && rooms.get(code);
+    if (!room) return socket.emit('room:error', { message: 'Вы не в комнате' });
+    if (room.hostUsername !== username) return socket.emit('room:error', { message: 'Тему может менять только хост' });
+    if (room.status !== 'lobby') return;
+    const valid = topic === 'mix' || topicList().some(t => t.key === topic);
+    room.topic = valid ? topic : room.topic;
+    broadcastPlayers(room);
   });
 
   socket.on('room:start', () => {
