@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Игра — Кто хочет стать АРТУРОМ</title>
+<title>Игра — Кто хочет стать миллионером</title>
 <link rel="stylesheet" href="/css/style.css">
 <style>
   body{padding-top:16px;}
@@ -68,11 +68,15 @@
   .lb-rank{font-family:'Space Mono',monospace; font-weight:800; font-size:17px; color:var(--gold-bright); width:26px;}
   .lb-name{flex:1; font-weight:700;}
   .lb-amount{font-family:'Space Mono',monospace; font-weight:700;}
+  .music-toggle{position:fixed; top:16px; right:16px; background:rgba(255,255,255,0.05); border:1px solid var(--line); color:var(--ink); border-radius:999px; width:42px; height:42px; font-size:18px; cursor:pointer; z-index:5;}
+  .music-toggle:hover{border-color:var(--gold);}
+  #confirmBtn:disabled{opacity:.35; cursor:not-allowed;}
 </style>
 </head>
 <body>
+<button class="music-toggle" id="musicToggle" title="Включить/выключить музыку">🔇</button>
 
-<div class="logo" style="font-size:22px;">КТО ХОЧЕТ СТАТЬ АРТУРОМ</div>
+<div class="logo" style="font-size:22px;">КТО ХОЧЕТ СТАТЬ МИЛЛИОНЕРОМ</div>
 
 <div class="game-wrap hidden" id="gameScreen">
   <div class="card main-card">
@@ -90,6 +94,7 @@
     <div class="audience-bars" id="audienceBars"></div>
     <div class="expert-msg" id="expertMsg"></div>
     <div class="options" id="optionsBox"></div>
+    <button class="btn" id="confirmBtn" disabled style="margin-top:14px;">Подтвердить ответ</button>
     <div class="status-msg hidden" id="statusMsg"></div>
   </div>
 
@@ -110,6 +115,7 @@
 </div>
 
 <script src="/socket.io/socket.io.js"></script>
+<script src="/js/audio.js"></script>
 <script>
 const token = localStorage.getItem('mq_token');
 const username = localStorage.getItem('mq_username');
@@ -134,7 +140,16 @@ let myLevel = 0;
 let iAmAlive = true;
 let latestPlayers = [];
 let answered = false;
+let selectedChoice = null;
 let timerInterval = null;
+
+const musicToggle = document.getElementById('musicToggle');
+musicToggle.onclick = () => {
+  const on = MQAudio.toggleAmbient('game');
+  musicToggle.textContent = on ? '🔊' : '🔇';
+};
+
+const confirmBtn = document.getElementById('confirmBtn');
 
 const qNumEl = document.getElementById('qNum');
 const qPrizeEl = document.getElementById('qPrize');
@@ -196,6 +211,8 @@ socket.on('game:started', () => {
   myLevel = 0; iAmAlive = true;
   lifeFifty.disabled = false; lifeAudience.disabled = false; lifeExpert.disabled = false;
   renderLadder();
+  MQAudio.startAmbient('game');
+  musicToggle.textContent = '🔊';
 });
 
 socket.on('game:question', (q) => {
@@ -204,6 +221,10 @@ socket.on('game:question', (q) => {
   overScreen.classList.add('hidden');
   gameScreen.classList.remove('hidden');
   answered = false;
+  selectedChoice = null;
+  confirmBtn.disabled = true;
+  confirmBtn.classList.remove('hidden');
+  confirmBtn.textContent = 'Подтвердить ответ';
   qNumEl.textContent = q.index + 1;
   qPrizeEl.textContent = fmt(q.prize);
   questionText.textContent = q.text;
@@ -220,12 +241,13 @@ socket.on('game:question', (q) => {
     if(q.spectateOnly){
       btn.disabled = true;
     } else {
-      btn.onclick = () => selectAnswer(i);
+      btn.onclick = () => pickAnswer(i);
     }
     optionsBox.appendChild(btn);
   });
 
   if(q.spectateOnly){
+    confirmBtn.classList.add('hidden');
     statusMsg.classList.remove('hidden');
     statusMsg.textContent = 'Вы выбыли из игры — можно наблюдать за раундом.';
     lifeFifty.disabled = true; lifeAudience.disabled = true; lifeExpert.disabled = true;
@@ -236,26 +258,51 @@ socket.on('game:question', (q) => {
 
 function startClientTimer(durationSeconds, startedAt){
   clearInterval(timerInterval);
+  let lastTickSecond = null;
   function tick(){
     const elapsed = (Date.now() - startedAt) / 1000;
     const left = Math.max(0, durationSeconds - elapsed);
-    timerNum.textContent = Math.ceil(left);
+    const leftRounded = Math.ceil(left);
+    timerNum.textContent = leftRounded;
     timerFill.style.width = (left/durationSeconds*100) + '%';
-    timerFill.classList.toggle('low', left <= 8);
-    if(left <= 0) clearInterval(timerInterval);
+    const low = left <= 8;
+    timerFill.classList.toggle('low', low);
+    if(low && leftRounded !== lastTickSecond && leftRounded > 0){
+      lastTickSecond = leftRounded;
+      MQAudio.playTick(leftRounded <= 3);
+    }
+    if(left <= 0){
+      clearInterval(timerInterval);
+      // время вышло, но подтвердить ещё не успели — отправляем выбранный вариант (или ничего)
+      if(!answered) confirmAnswer(true);
+    }
   }
   tick();
-  timerInterval = setInterval(tick, 250);
+  timerInterval = setInterval(tick, 200);
 }
 
-function selectAnswer(i){
+function pickAnswer(i){
+  if(answered) return;
+  selectedChoice = i;
+  [...optionsBox.children].forEach((b,idx) => b.classList.toggle('picked', idx===i));
+  confirmBtn.disabled = false;
+}
+
+function confirmAnswer(auto){
   if(answered) return;
   answered = true;
-  socket.emit('game:answer', { choiceIndex: i });
-  [...optionsBox.children].forEach((b,idx) => { b.disabled = true; if(idx===i) b.classList.add('picked'); });
+  confirmBtn.disabled = true;
+  confirmBtn.classList.add('hidden');
+  if(selectedChoice !== null){
+    socket.emit('game:answer', { choiceIndex: selectedChoice });
+  }
+  [...optionsBox.children].forEach((b) => { b.disabled = true; });
   statusMsg.classList.remove('hidden');
-  statusMsg.textContent = 'Ответ отправлен — ждём остальных игроков…';
+  statusMsg.textContent = selectedChoice === null
+    ? 'Время вышло — ответ не отправлен.'
+    : 'Ответ отправлен — ждём остальных игроков…';
 }
+confirmBtn.onclick = () => confirmAnswer(false);
 
 socket.on('game:answerReceived', () => {
   statusMsg.classList.remove('hidden');
@@ -264,15 +311,19 @@ socket.on('game:answerReceived', () => {
 
 socket.on('game:locked', ({ delayMs }) => {
   clearInterval(timerInterval);
+  confirmBtn.disabled = true;
+  confirmBtn.classList.add('hidden');
   [...optionsBox.children].forEach(b => { b.disabled = true; });
   statusMsg.classList.remove('hidden');
   let secondsLeft = Math.round((delayMs || 5000) / 1000);
   statusMsg.textContent = `Все ответили! Правильный ответ через ${secondsLeft}…`;
+  MQAudio.playTick(true);
   clearInterval(timerInterval);
   timerInterval = setInterval(() => {
     secondsLeft -= 1;
     if(secondsLeft > 0){
       statusMsg.textContent = `Все ответили! Правильный ответ через ${secondsLeft}…`;
+      MQAudio.playTick(secondsLeft <= 2);
     } else {
       clearInterval(timerInterval);
     }
@@ -296,10 +347,13 @@ socket.on('game:reveal', ({ correctIndex, results }) => {
     statusMsg.classList.remove('hidden');
     if(mine.chosen === null){
       statusMsg.textContent = 'Время вышло — ответ не был отправлен.';
+      MQAudio.playWrong();
     } else if(mine.correct){
       statusMsg.textContent = mine.alive ? 'Верно! Следующий вопрос скоро появится…' : '🏆 Верно! Вы прошли всю игру!';
+      MQAudio.playCorrect();
     } else {
       statusMsg.textContent = `Неверно. Ваш итог: ${fmt(mine.bankedMoney)}`;
+      MQAudio.playWrong();
     }
   }
 });
