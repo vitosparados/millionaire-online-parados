@@ -3,11 +3,16 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Вход — Кто хочет стать АРТУРОМ</title>
+<title>Вход — Кто хочет стать миллионером</title>
 <link rel="stylesheet" href="/css/style.css">
+<style>
+  .music-toggle{position:fixed; top:16px; right:16px; background:rgba(255,255,255,0.05); border:1px solid var(--line); color:var(--ink); border-radius:999px; width:42px; height:42px; font-size:18px; cursor:pointer;}
+  .music-toggle:hover{border-color:var(--gold);}
+</style>
 </head>
 <body>
-<div class="logo">КТО ХОЧЕТ СТАТЬ АРТУРОМ</div>
+<button class="music-toggle" id="musicToggle" title="Включить/выключить музыку">🔇</button>
+<div class="logo">КТО ХОЧЕТ СТАТЬ МИЛЛИОНЕРОМ</div>
 <div class="tagline">онлайн-викторина · реальные игроки · одна комната</div>
 
 <div class="card" id="loginCard">
@@ -34,10 +39,17 @@
 
 <div class="footnote">Регистрация нужна, чтобы в одной комнате играли реальные, узнаваемые игроки — до 5 человек одновременно с разных устройств.</div>
 
+<script src="/js/audio.js"></script>
 <script>
 if (localStorage.getItem('mq_token')) {
   window.location.href = '/lobby.html';
 }
+
+const musicToggle = document.getElementById('musicToggle');
+musicToggle.onclick = () => {
+  const on = MQAudio.toggleAmbient('menu');
+  musicToggle.textContent = on ? '🔊' : '🔇';
+};
 
 const loginCard = document.getElementById('loginCard');
 const registerCard = document.getElementById('registerCard');
